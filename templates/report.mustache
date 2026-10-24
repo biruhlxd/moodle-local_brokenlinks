@@ -1,0 +1,207 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_brokenlinks/report
+
+    Broken links report for one course.
+
+    Example context (json):
+    {
+        "canrun": true,
+        "ignoredurl": "#",
+        "ignoredcount": 2,
+        "runurl": "https://example.com/local/brokenlinks/index.php?id=2&action=run",
+        "actionurl": "https://example.com/local/brokenlinks/index.php?id=2",
+        "sesskey": "abc",
+        "pending": false,
+        "hasscan": true,
+        "timefinished": "Monday, 19 October 2026, 10:00 AM",
+        "linkschecked": 120,
+        "brokencount": 1,
+        "warningcount": 0,
+        "filters": [{"label": "All", "url": "#", "active": true}],
+        "hasrows": true,
+        "rows": [{
+            "id": 7,
+            "broken": true,
+            "canrecheck": true,
+            "canignore": true,
+            "where": "Session 1",
+            "whereurl": "#",
+            "icon": "",
+            "location": "File in package: story_content/user.js",
+            "url": "https://example.com/missing",
+            "isweb": true,
+            "displayurl": "https://example.com/missing",
+            "linktext": "",
+            "httpstatus": 404,
+            "message": "Page not found",
+            "extraactions": ""
+        }],
+        "pagingbar": "",
+        "downloadselector": "",
+        "headeractions": "",
+        "footer": ""
+    }
+}}
+<div class="local-brokenlinks">
+    <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
+        <h2 class="h3 mb-2">{{#str}} pluginname, local_brokenlinks {{/str}}</h2>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            {{#ignoredurl}}
+            <a class="btn btn-secondary" href="{{ignoredurl}}">{{#str}} ignoredlinkscount, local_brokenlinks, {{ignoredcount}} {{/str}}</a>
+            {{/ignoredurl}}
+            {{{headeractions}}}
+            {{#canrun}}
+            <form method="post" action="{{runurl}}">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <button type="submit" class="btn btn-primary">
+                    {{#hasscan}}{{#str}} runagain, local_brokenlinks {{/str}}{{/hasscan}}
+                    {{^hasscan}}{{#str}} runcheck, local_brokenlinks {{/str}}{{/hasscan}}
+                </button>
+            </form>
+            {{/canrun}}
+        </div>
+    </div>
+
+    <p class="text-muted">{{#str}} reportintro, local_brokenlinks {{/str}}</p>
+
+    {{#pending}}
+    <div class="alert alert-info" role="status">
+        {{#pendingrunning}}{{#str}} scanrunning, local_brokenlinks {{/str}}{{/pendingrunning}}
+        {{^pendingrunning}}{{#str}} scanwaiting, local_brokenlinks {{/str}}{{/pendingrunning}}
+    </div>
+    {{/pending}}
+
+    {{^hasscan}}
+        {{^pending}}
+        <div class="alert alert-secondary">{{#str}} noscanyet, local_brokenlinks {{/str}}</div>
+        {{/pending}}
+    {{/hasscan}}
+
+    {{#hasscan}}
+        {{#failed}}
+        <div class="alert alert-danger" role="alert">
+            {{#str}} scanfailed, local_brokenlinks {{/str}}
+            {{#errormessage}}<br><code>{{errormessage}}</code>{{/errormessage}}
+        </div>
+        {{/failed}}
+
+        <div class="d-flex flex-wrap gap-3 mb-3">
+            <div class="card p-3 flex-fill">
+                <div class="small text-muted">{{#str}} lastchecked, local_brokenlinks {{/str}}</div>
+                <div class="fw-bold">{{timefinished}}</div>
+            </div>
+            <div class="card p-3 flex-fill">
+                <div class="small text-muted">{{#str}} linkschecked, local_brokenlinks {{/str}}</div>
+                <div class="fs-4 fw-bold">{{linkschecked}}</div>
+            </div>
+            <div class="card p-3 flex-fill">
+                <div class="small text-muted">{{#str}} brokenlinks, local_brokenlinks {{/str}}</div>
+                <div class="fs-4 fw-bold {{#brokencount}}text-danger{{/brokencount}}">{{brokencount}}</div>
+            </div>
+            <div class="card p-3 flex-fill">
+                <div class="small text-muted">{{#str}} warnings, local_brokenlinks {{/str}}</div>
+                <div class="fs-4 fw-bold">{{warningcount}}</div>
+            </div>
+        </div>
+
+        {{#truncated}}
+        <div class="alert alert-warning">{{#str}} scantruncated, local_brokenlinks {{/str}}</div>
+        {{/truncated}}
+
+        <ul class="nav nav-pills mb-3">
+            {{#filters}}
+            <li class="nav-item">
+                <a class="nav-link {{#active}}active{{/active}}" href="{{url}}" {{#active}}aria-current="page"{{/active}}>{{label}}</a>
+            </li>
+            {{/filters}}
+        </ul>
+
+        {{#hasrows}}
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <caption class="visually-hidden">{{#str}} pluginname, local_brokenlinks {{/str}}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">{{#str}} col_status, local_brokenlinks {{/str}}</th>
+                        <th scope="col">{{#str}} col_where, local_brokenlinks {{/str}}</th>
+                        <th scope="col">{{#str}} col_link, local_brokenlinks {{/str}}</th>
+                        <th scope="col">{{#str}} col_problem, local_brokenlinks {{/str}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#rows}}
+                    <tr>
+                        <td>
+                            {{#broken}}<span class="badge bg-danger">{{#str}} severity_broken, local_brokenlinks {{/str}}</span>{{/broken}}
+                            {{^broken}}<span class="badge bg-warning text-dark">{{#str}} severity_warning, local_brokenlinks {{/str}}</span>{{/broken}}
+                        </td>
+                        <td>
+                            <div>
+                                {{#icon}}<img src="{{icon}}" alt="" class="icon" aria-hidden="true">{{/icon}}
+                                {{#whereurl}}<a href="{{whereurl}}">{{where}}</a>{{/whereurl}}
+                                {{^whereurl}}{{where}}{{/whereurl}}
+                            </div>
+                            <div class="small text-muted text-break">{{location}}</div>
+                        </td>
+                        <td class="text-break">
+                            {{#url}}
+                                {{#isweb}}<a href="{{url}}" target="_blank" rel="noopener noreferrer">{{displayurl}}<span class="visually-hidden"> ({{#str}} opensinnewwindow {{/str}})</span></a>{{/isweb}}
+                                {{^isweb}}<code>{{displayurl}}</code>{{/isweb}}
+                            {{/url}}
+                            {{#linktext}}<div class="small text-muted">{{linktext}}</div>{{/linktext}}
+                        </td>
+                        <td>
+                            {{message}}
+                            {{#httpstatus}}<span class="small text-muted">(HTTP {{httpstatus}})</span>{{/httpstatus}}
+                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                                {{{extraactions}}}
+                                {{#canrecheck}}
+                                <form method="post" action="{{actionurl}}">
+                                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    <input type="hidden" name="action" value="recheck">
+                                    <input type="hidden" name="linkid" value="{{id}}">
+                                    <button type="submit" class="btn btn-sm btn-link">{{#str}} recheck, local_brokenlinks {{/str}}</button>
+                                </form>
+                                {{/canrecheck}}
+                                {{#canignore}}
+                                <form method="post" action="{{actionurl}}">
+                                    <input type="hidden" name="sesskey" value="{{sesskey}}">
+                                    <input type="hidden" name="action" value="ignore">
+                                    <input type="hidden" name="linkid" value="{{id}}">
+                                    <button type="submit" class="btn btn-sm btn-link" title="{{#str}} ignorelink_help, local_brokenlinks {{/str}}">{{#str}} ignorelink, local_brokenlinks {{/str}}</button>
+                                </form>
+                                {{/canignore}}
+                            </div>
+                        </td>
+                    </tr>
+                    {{/rows}}
+                </tbody>
+            </table>
+        </div>
+        {{{pagingbar}}}
+        {{{downloadselector}}}
+        {{/hasrows}}
+        {{^hasrows}}
+        <div class="alert alert-success">{{#str}} noproblems, local_brokenlinks {{/str}}</div>
+        {{/hasrows}}
+    {{/hasscan}}
+
+
+    {{{footer}}}
+</div>
