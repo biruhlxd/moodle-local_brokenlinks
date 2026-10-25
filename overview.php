@@ -36,7 +36,7 @@ $url = new moodle_url('/local/brokenlinks/overview.php');
 
 if ($action === 'runall' && confirm_sesskey()) {
     require_capability('moodle/site:config', context_system::instance());
-    \core\task\manager::queue_adhoc_task(new \local_brokenlinks\task\queue_all_courses(), true);
+    scan_manager::start_site_check();
     redirect($url, get_string('allscansqueued', 'local_brokenlinks'), null, \core\output\notification::NOTIFY_INFO);
 }
 
@@ -54,7 +54,17 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('overview', 'local_brokenlinks'));
 echo html_writer::tag('p', get_string('overviewintro', 'local_brokenlinks'), ['class' => 'text-muted']);
 
-if (has_capability('moodle/site:config', context_system::instance())) {
+$progress = scan_manager::site_progress();
+if ($progress && ($progress['queuing'] || $progress['pending'] > 0)) {
+    // The page asks for progress every few seconds and says when every course has been checked.
+    $key = $progress['queuing'] ? 'runallqueuing' : 'runallprogress';
+    echo html_writer::div(
+        get_string($key, 'local_brokenlinks', (object)$progress),
+        'alert alert-info',
+        ['role' => 'status', 'id' => 'local-brokenlinks-siteprogress']
+    );
+    $PAGE->requires->js_call_amd('local_brokenlinks/site_progress', 'init', ['#local-brokenlinks-siteprogress']);
+} else if (has_capability('moodle/site:config', context_system::instance())) {
     echo $OUTPUT->single_button(
         new moodle_url($url, ['action' => 'runall']),
         get_string('runall', 'local_brokenlinks'),

@@ -32,4 +32,11 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'local/brokenlinks:view',
     ],
+    'local_brokenlinks_get_site_progress' => [
+        'classname' => \local_brokenlinks\external\get_site_progress::class,
+        'description' => 'Progress of the check of all courses started from the overview page.',
+        'type' => 'read',
+        'ajax' => true,
+        'capabilities' => 'local/brokenlinks:viewall',
+    ],
 ];

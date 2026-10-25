@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2 (2026-10-25)
+
+- **Check all courses** on the site overview now shows its progress (courses checked and still waiting) and says when every course has been checked, with a **See results** button.
+
 ## 1.0.1 (2026-10-25)
 
 - While a link check is waiting or running, the report page now watches it and says when it has finished, with a **See results** button, instead of asking the user to reload the page.

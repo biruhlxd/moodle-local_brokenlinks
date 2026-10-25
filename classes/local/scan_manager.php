@@ -88,6 +88,41 @@ class scan_manager {
     }
 
     /**
+     * Progress of "Check all courses", counting the scans queued since it was started.
+     *
+     * @return array|null ['queuing' => bool, still adding courses; 'pending' => int, courses waiting or running;
+     *     'done' => int, courses checked], or null if no check of all courses was started.
+     */
+    public static function site_progress(): ?array {
+        global $DB;
+        $since = (int)get_config('local_brokenlinks', 'runallstarted');
+        if (!$since) {
+            return null;
+        }
+        $queuing = (bool)\core\task\manager::get_adhoc_tasks('\local_brokenlinks\task\queue_all_courses');
+        $pending = $DB->count_records_select(
+            'local_brokenlinks_scan',
+            'status IN (:queued, :running) AND timequeued >= :since AND timequeued > :stale',
+            ['queued' => self::STATUS_QUEUED, 'running' => self::STATUS_RUNNING, 'since' => $since,
+                'stale' => time() - self::STALE_AFTER]
+        );
+        $done = $DB->count_records_select(
+            'local_brokenlinks_scan',
+            'status IN (:finished, :failed) AND timequeued >= :since',
+            ['finished' => self::STATUS_FINISHED, 'failed' => self::STATUS_FAILED, 'since' => $since]
+        );
+        return ['queuing' => $queuing, 'pending' => $pending, 'done' => $done];
+    }
+
+    /**
+     * Start checking every course in the background, and remember when, to follow its progress.
+     */
+    public static function start_site_check(): void {
+        set_config('runallstarted', time(), 'local_brokenlinks');
+        \core\task\manager::queue_adhoc_task(new \local_brokenlinks\task\queue_all_courses(), true);
+    }
+
+    /**
      * Run a queued scan. Older scans of the same course are removed when it finishes.
      *
      * @param int $scanid
