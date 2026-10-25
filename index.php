@@ -90,6 +90,7 @@ $template = [
     'ignoredurl' => $canrun ? (new moodle_url('/local/brokenlinks/ignored.php', ['id' => $course->id]))->out(false) : '',
     'ignoredcount' => $canrun ? $DB->count_records('local_brokenlinks_ignore', ['courseid' => $course->id]) : 0,
     'sesskey' => sesskey(),
+    'courseid' => $course->id,
     'pending' => (bool)$pending,
     'pendingrunning' => $pending && $pending->status == scan_manager::STATUS_RUNNING,
     'hasscan' => (bool)$scan,

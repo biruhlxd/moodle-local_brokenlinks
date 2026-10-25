@@ -27,6 +27,7 @@
         "runurl": "https://example.com/local/brokenlinks/index.php?id=2&action=run",
         "actionurl": "https://example.com/local/brokenlinks/index.php?id=2",
         "sesskey": "abc",
+        "courseid": 2,
         "pending": false,
         "hasscan": true,
         "timefinished": "Monday, 19 October 2026, 10:00 AM",
@@ -81,7 +82,8 @@
     <p class="text-muted">{{#str}} reportintro, local_brokenlinks {{/str}}</p>
 
     {{#pending}}
-    <div class="alert alert-info" role="status">
+    <div class="alert alert-info" role="status" id="local-brokenlinks-scanstatus-{{uniqid}}"
+        data-status="{{#pendingrunning}}running{{/pendingrunning}}{{^pendingrunning}}queued{{/pendingrunning}}">
         {{#pendingrunning}}{{#str}} scanrunning, local_brokenlinks {{/str}}{{/pendingrunning}}
         {{^pendingrunning}}{{#str}} scanwaiting, local_brokenlinks {{/str}}{{/pendingrunning}}
     </div>
@@ -202,6 +204,12 @@
         {{/hasrows}}
     {{/hasscan}}
 
-
     {{{footer}}}
 </div>
+{{#pending}}
+{{#js}}
+require(['local_brokenlinks/scan_status'], function(status) {
+    status.init({{courseid}}, '#local-brokenlinks-scanstatus-{{uniqid}}');
+});
+{{/js}}
+{{/pending}}

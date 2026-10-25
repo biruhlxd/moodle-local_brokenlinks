@@ -32,3 +32,15 @@ Feature: Check the links of a course
     And I should see "handout.pdf"
     And I press "Check again in scans"
     And I should see "No links are marked as not broken in this course."
+
+  @javascript
+  Scenario: The report says when a link check has finished
+    Given I am on the "C1" "Course" page logged in as "teacher1"
+    And I navigate to "Link Scanner" in current page administration
+    When I press "Check links"
+    Then I should see "A link check is waiting to start."
+    And I run all adhoc tasks
+    And I wait "12" seconds
+    And I should see "The link check has finished."
+    And I click on "See results" "link"
+    And I should see "Embedded file is missing."

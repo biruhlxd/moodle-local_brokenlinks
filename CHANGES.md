@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 (2026-10-25)
+
+- While a link check is waiting or running, the report page now watches it and says when it has finished, with a **See results** button, instead of asking the user to reload the page.
+
 ## 1.0.0 (2026-10-25)
 
 First public release. Earlier versions (0.1–0.5) were a private all-in-one plugin; its fixing and SCORM export tools are now a separate add-on.
