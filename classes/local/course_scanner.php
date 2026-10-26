@@ -177,7 +177,13 @@ class course_scanner {
 
         switch ($cm->modname) {
             case 'url':
-                $this->check_link($base + ['location' => 'externalurl'], trim((string)$record->externalurl), '');
+                // URL variables (such as the learner's id) are added when a learner opens the link.
+                $variables = unserialize_array((string)($record->parameters ?? '')) ?: [];
+                $this->check_link(
+                    $base + ['location' => 'externalurl', 'urlvariables' => !empty($variables)],
+                    trim((string)$record->externalurl),
+                    ''
+                );
                 break;
 
             case 'resource':
@@ -341,18 +347,71 @@ class course_scanner {
             return;
         }
 
+        // Links rewritten by an email security service stop working when the service expires them.
+        if (($original = self::unwrap_security_link($url)) !== null) {
+            $this->stats['linkschecked']++;
+            $message = $original === '' ? get_string('error_wrappedlink', 'local_brokenlinks')
+                : get_string('error_wrappedlinkoriginal', 'local_brokenlinks', $original);
+            $this->record($source, $url, $text, 'external', url_checker::WARNING, 0, $message);
+            return;
+        }
+
         if (!array_key_exists($url, $this->checked)) {
             if (count($this->checked) >= $this->maxlinks) {
                 $this->stats['truncated'] = 1;
                 return;
             }
-            $this->checked[$url] = $this->checker->check($url);
+            // Publishers behind DOI links often refuse automated checks; doi.org says whether the DOI exists.
+            $this->checked[$url] = $this->checker->check(self::doi_lookup_url($url) ?? $url);
         }
         $this->stats['linkschecked']++;
         $result = $this->checked[$url];
+        if (!empty($source['urlvariables']) && in_array($result['httpstatus'], [400, 405, 422])) {
+            // The URL activity adds data for each learner, such as their id, which the website needs.
+            $result = ['severity' => url_checker::WARNING, 'httpstatus' => $result['httpstatus'],
+                'message' => get_string('error_urlvariables', 'local_brokenlinks')];
+        }
         if ($result['severity'] !== url_checker::OK) {
             $this->record($source, $url, $text, 'external', $result['severity'], $result['httpstatus'], $result['message']);
         }
+    }
+
+    /**
+     * The doi.org lookup address for a DOI link, which answers for the DOI itself rather than the publisher's page.
+     *
+     * @param string $url
+     * @return string|null Null if the link is not a DOI link.
+     */
+    public static function doi_lookup_url(string $url): ?string {
+        if (!preg_match('~^https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/[^?#]+)$~i', $url, $match)) {
+            return null;
+        }
+        return 'https://doi.org/api/handles/' . $match[1];
+    }
+
+    /**
+     * The original address of a link rewritten by an email security service, such as Barracuda or Microsoft Safe Links.
+     *
+     * @param string $url
+     * @return string|null The original address, '' if it cannot be read from the link, or null if the link is not rewritten.
+     */
+    public static function unwrap_security_link(string $url): ?string {
+        $host = strtolower((string)parse_url($url, PHP_URL_HOST));
+        $wrappers = [
+            'linkprotect.cudasvc.com' => 'a',
+            'safelinks.protection.outlook.com' => 'url',
+            'urldefense.proofpoint.com' => null,
+            'urldefense.com' => null,
+        ];
+        foreach ($wrappers as $wrapper => $param) {
+            if ($host !== $wrapper && !str_ends_with($host, '.' . $wrapper)) {
+                continue;
+            }
+            parse_str((string)parse_url($url, PHP_URL_QUERY), $query);
+            $original = $param !== null && isset($query[$param]) && is_string($query[$param]) ? $query[$param] : '';
+            return preg_match('~^https?://~i', $original) ? $original : '';
+        }
+        return null;
     }
 
     /**

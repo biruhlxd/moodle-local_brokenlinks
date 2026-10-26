@@ -60,6 +60,9 @@ class url_checker {
     /** @var string[] Phrases that mean a page loaded but its content does not exist. */
     protected $notfoundphrases = [];
 
+    /** @var bool[] Home page address => whether that website refuses this server, for this run. */
+    protected $homes = [];
+
     /** @var int Request timeout in seconds. */
     protected $timeout;
 
@@ -105,10 +108,37 @@ class url_checker {
             }
         }
         $result = $this->request($url);
+        // Some websites refuse servers in hosting centres by answering "not found" for every page, home page included,
+        // while visitors get the page. A missing page on a website whose home page also fails is not a broken link.
+        if ($result['severity'] === self::BROKEN && in_array($result['httpstatus'], [404, 410]) && $this->site_refuses($url)) {
+            $result = $this->result(self::WARNING, $result['httpstatus'], get_string('error_siterefuses', 'local_brokenlinks'));
+        }
         if ($this->cachettl > 0) {
             $this->cache->set($key, ['time' => time(), 'result' => $result]);
         }
         return $result;
+    }
+
+    /**
+     * Whether the home page of a link's website fails too, as when the website refuses this server.
+     *
+     * @param string $url
+     * @return bool False for a link to the home page itself.
+     */
+    protected function site_refuses(string $url): bool {
+        $parts = parse_url($url);
+        if (empty($parts['scheme']) || empty($parts['host'])) {
+            return false;
+        }
+        $home = strtolower($parts['scheme']) . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '') . '/';
+        if (rtrim($url, '/') === rtrim($home, '/')) {
+            return false;
+        }
+        if (!array_key_exists($home, $this->homes)) {
+            $answer = $this->request($home);
+            $this->homes[$home] = $answer['severity'] !== self::OK && $answer['httpstatus'] >= 400;
+        }
+        return $this->homes[$home];
     }
 
     /**

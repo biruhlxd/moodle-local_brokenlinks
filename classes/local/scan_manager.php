@@ -210,7 +210,7 @@ class scan_manager {
     public static function recheck(int $scanid, string $url, ?url_checker $checker = null): array {
         global $DB;
         // Never use the cached result: the point is to see whether the link was repaired.
-        $result = ($checker ?? new url_checker(null, 0))->check($url);
+        $result = ($checker ?? new url_checker(null, 0))->check(course_scanner::doi_lookup_url($url) ?? $url);
         if ($result['severity'] === url_checker::OK) {
             self::remove_links($scanid, [$url]);
             return $result;

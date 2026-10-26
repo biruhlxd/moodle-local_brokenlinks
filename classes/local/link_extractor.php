@@ -248,7 +248,11 @@ class link_extractor {
             }
         });
         foreach ($strings as $value) {
-            if (str_contains($value, '<') && str_contains($value, '>')) {
+            if (preg_match('~^https?://\S+$~i', $value) && preg_match('~^https?://[^/]*[a-z0-9]~i', $value)) {
+                // A value that is a whole address is taken as it is: it can contain characters that end a URL
+                // in running text, such as the apostrophe in Rise's ".../team_sam's_studio.jpg".
+                $links[] = ['url' => $value, 'text' => ''];
+            } else if (str_contains($value, '<') && str_contains($value, '>')) {
                 $links = array_merge($links, $this->extract_from_html($value));
             } else {
                 foreach ($this->extract_absolute_urls($value) as $url) {

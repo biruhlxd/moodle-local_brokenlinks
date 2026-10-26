@@ -427,7 +427,7 @@ REGEX;
         }
         // Players such as Storyline remap the paths in their data at runtime, for example from story_content/
         // to mobile/, so a script reference is fine when a file of that name exists anywhere in the package.
-        if ($fromscript && isset($this->basenames[basename($relative)])) {
+        if ($fromscript && isset($this->basenames[self::stored_name(basename($relative))])) {
             return;
         }
         foreach ($candidates as $candidate) {
@@ -475,9 +475,24 @@ REGEX;
                 array_pop($parts);
                 continue;
             }
-            $parts[] = $segment;
+            $parts[] = self::stored_name($segment);
         }
         return implode('/', $parts);
+    }
+
+    /**
+     * The name Moodle gives a file or folder when it unpacks a package.
+     *
+     * Moodle removes some characters from file names, such as apostrophes: "sam's video.mp4" is stored as
+     * "sams video.mp4". It cleans the names in requests for package files the same way, so learners still get
+     * the file; a link has to be compared with the stored name.
+     *
+     * @param string $name
+     * @return string
+     */
+    public static function stored_name(string $name): string {
+        $cleaned = clean_param($name, PARAM_FILE);
+        return $cleaned === '' ? $name : $cleaned;
     }
 
     /**
