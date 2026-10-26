@@ -276,11 +276,11 @@ final class course_scanner_test extends \advanced_testcase {
     }
 
     public function test_rise_names_with_apostrophes(): void {
-
         $this->resetAfterTest();
         $this->setAdminUser();
         $course = $this->getDataGenerator()->create_course();
         $scorm = $this->getDataGenerator()->create_module('scorm', ['course' => $course->id]);
+
         // Moodle stores "sam's video.mp4" without the apostrophe when it unpacks the package.
         $this->add_package_file($scorm, 'scormcontent/assets/sams video (2).mp4', 'mp4');
         // Replace the manifest of the generator's package.
@@ -290,38 +290,57 @@ final class course_scanner_test extends \advanced_testcase {
             '<file href="scormcontent/assets/sam%27s%20video%20%282%29.mp4"/>' .
             '<file href="scormcontent/assets/gone%27s.mp4"/></resource></resources></manifest>');
         $data = ['lessons' => [['items' => [['media' => ['video' => [
-            'key' => "sam's video (2).mp4", 'thumbnail' => "https://images.example.test/rise/transcoded-sam's_studio%2520(2).0000000.jpg",
+            'key' => "sam's video (2).mp4",
+            'thumbnail' => "https://images.example.test/rise/transcoded-sam's_studio%2520(2).0000000.jpg",
         ]]], ['pad' => str_repeat('x', 300)]]]]];
-        $this->add_package_file($scorm, 'scormcontent/index.html', '<script>window.courseData = deserialize("' . base64_encode(json_encode($data)) . '");</script>');
+        $this->add_package_file(
+            $scorm,
+            'scormcontent/index.html',
+            '<script>window.courseData = deserialize("' . base64_encode(json_encode($data)) . '");</script>'
+        );
+
         $checker = new fake_url_checker();
         [, $problems] = $this->scan($course->id, $checker);
+
         $this->assertArrayNotHasKey('scormcontent/assets/sam%27s%20video%20%282%29.mp4', $problems);
         $this->assertArrayHasKey('scormcontent/assets/gone%27s.mp4', $problems, 'A file that is really missing');
-        $this->assertContains("https://images.example.test/rise/transcoded-sam's_studio%2520(2).0000000.jpg", $checker->requests, 'The whole address is checked, apostrophe included');
+        $this->assertContains(
+            "https://images.example.test/rise/transcoded-sam's_studio%2520(2).0000000.jpg",
+            $checker->requests,
+            'The whole address is checked, apostrophe included'
+        );
     }
 
     public function test_url_variables_dois_and_wrapped_links(): void {
-
         global $DB;
         $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator();
-        $course = $generator->create_course(['summary' => '<a href="https://doi.org/10.1234/article.5">Paper</a> <a href="https://doi.org/10.1234/broken.6">Gone</a> ' .
+        $course = $generator->create_course(['summary' =>
+            '<a href="https://doi.org/10.1234/article.5">Paper</a> <a href="https://doi.org/10.1234/broken.6">Gone</a> ' .
             '<a href="https://linkprotect.cudasvc.com/url?a=http%3a%2f%2fdoi.org%2f10.1097%2fNMC.370&amp;c=E,1,x">Wrapped</a>']);
-        $withvariables = $generator->create_module('url', ['course' => $course->id, 'externalurl' => 'https://receiver.test/badrequest.php']);
+        $withvariables = $generator->create_module('url', ['course' => $course->id,
+            'externalurl' => 'https://receiver.test/badrequest.php']);
         $DB->set_field('url', 'parameters', serialize(['user' => 'userid']), ['id' => $withvariables->id]);
         $generator->create_module('url', ['course' => $course->id, 'externalurl' => 'https://plain.test/badrequest.php']);
+
         $checker = new fake_url_checker();
         [, $problems] = $this->scan($course->id, $checker);
+
         // A URL activity that adds learner data is a warning; the same error without it is a broken link.
         $this->assertCount(1, array_filter($problems, fn($p) => $p->url === 'https://receiver.test/badrequest.php'));
         $this->assertEquals(url_checker::WARNING, $problems['https://receiver.test/badrequest.php']->severity);
-        $this->assertSame(get_string('error_urlvariables', 'local_brokenlinks'), $problems['https://receiver.test/badrequest.php']->message);
+        $this->assertSame(
+            get_string('error_urlvariables', 'local_brokenlinks'),
+            $problems['https://receiver.test/badrequest.php']->message
+        );
         $this->assertEquals(url_checker::BROKEN, $problems['https://plain.test/badrequest.php']->severity);
+
         // DOIs are checked with doi.org's lookup service.
         $this->assertContains('https://doi.org/api/handles/10.1234/article.5', $checker->requests);
         $this->assertArrayNotHasKey('https://doi.org/10.1234/article.5', $problems);
         $this->assertArrayHasKey('https://doi.org/10.1234/broken.6', $problems);
+
         // A link wrapped by an email security service is a warning that gives the original address.
         $wrapped = 'https://linkprotect.cudasvc.com/url?a=http%3a%2f%2fdoi.org%2f10.1097%2fNMC.370&c=E,1,x';
         $this->assertEquals(url_checker::WARNING, $problems[$wrapped]->severity);
@@ -330,15 +349,16 @@ final class course_scanner_test extends \advanced_testcase {
     }
 
     public function test_website_that_refuses_this_server(): void {
-
         $this->resetAfterTest();
         $checker = new fake_url_checker();
+
         // Every page of the website, home page included, answers "not found" to this server.
         $result = $checker->check('https://refusing.test/pubs/old-page/');
         $this->assertSame(url_checker::WARNING, $result['severity']);
         $this->assertSame(get_string('error_siterefuses', 'local_brokenlinks'), $result['message']);
         $checker->check('https://refusing.test/another/page');
         $this->assertCount(1, array_keys($checker->requests, 'https://refusing.test/'), 'The home page is checked once');
+
         // A missing page on a website that works is still broken, and so is a home page that fails.
         $this->assertSame(url_checker::BROKEN, $checker->check('https://broken.test/pubs/old-page/')['severity']);
         $this->assertSame(url_checker::BROKEN, $checker->check('https://refusing.test/')['severity']);
