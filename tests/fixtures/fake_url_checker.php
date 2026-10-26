@@ -42,9 +42,14 @@ class fake_url_checker extends \local_brokenlinks\local\url_checker {
      */
     protected function request(string $url): array {
         $this->requests[] = $url;
-        // Home pages work, unless the website refuses this server.
+        // The home pages of websites with broken pages work, unless the website refuses this server.
         if (in_array((string)parse_url($url, PHP_URL_PATH), ['', '/'])) {
-            return str_contains($url, 'refusing') ? $this->classify(404, 0, '') : $this->classify(200, 0, '');
+            if (str_contains($url, 'refusing')) {
+                return $this->classify(404, 0, '');
+            }
+            if (str_contains($url, 'broken')) {
+                return $this->classify(200, 0, '');
+            }
         }
         if (str_contains($url, 'broken') || str_contains($url, 'refusing')) {
             return $this->classify(404, 0, '');
