@@ -60,6 +60,14 @@ $columns = [
     'problem' => get_string('col_problem', 'local_brokenlinks'),
     'page' => get_string('col_page', 'local_brokenlinks'),
 ];
+// Where inside packages links are, when another plugin says so.
+$places = (bool)\core\di::get(\core\hook\manager::class)->get_callbacks_for_hook(\local_brokenlinks\hook\link_place::class);
+if ($places) {
+    $columns += [
+        'place' => get_string('col_place', 'local_brokenlinks'),
+        'preview' => get_string('col_preview', 'local_brokenlinks'),
+    ];
+}
 $modinfo = get_fast_modinfo($course);
 $broken = get_string('severity_broken', 'local_brokenlinks');
 $warning = get_string('severity_warning', 'local_brokenlinks');
@@ -71,7 +79,7 @@ $filename = clean_filename(get_string('downloadfilename', 'local_brokenlinks', $
     $dataformat,
     $columns,
     $links,
-    function (\stdClass $link) use ($course, $modinfo, $broken, $warning): array {
+    function (\stdClass $link) use ($course, $modinfo, $broken, $warning, $places): array {
         $source = report_helper::describe($link, $course, $modinfo);
         $row = [
             'status' => $link->severity == url_checker::BROKEN ? $broken : $warning,
@@ -83,6 +91,9 @@ $filename = clean_filename(get_string('downloadfilename', 'local_brokenlinks', $
             'problem' => (string)$link->message,
             'page' => $source['whereurl'],
         ];
+        if ($places) {
+            $row += ['place' => $source['place'], 'preview' => $source['previewurl']];
+        }
         // Text from course content must not run as a formula when the file is opened in a spreadsheet.
         return array_map(fn($value) => is_string($value) && preg_match('~^[=+\-@\t\r]~', $value) ? "'" . $value : $value, $row);
     }

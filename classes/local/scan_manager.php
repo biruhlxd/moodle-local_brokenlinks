@@ -177,6 +177,7 @@ class scan_manager {
                 notifier::notify_course($scan, $older ? (int)max($older) : null);
             }
             self::delete_scans($older);
+            \core\di::get(\core\hook\manager::class)->dispatch(new \local_brokenlinks\hook\scan_finished($scan));
         }
         return $scan;
     }

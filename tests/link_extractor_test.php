@@ -94,6 +94,43 @@ final class link_extractor_test extends \basic_testcase {
         $this->assertTrue($extractor->has_undecodable_data($broken));
     }
 
+    public function test_rise_lessons_and_blocks(): void {
+        $data = ['course' => [
+            'description' => '<a href="https://intro.test/">Intro</a>',
+            'lessons' => [
+                ['id' => 'L1', 'title' => 'Welcome', 'items' => [['id' => 'B1', 'type' => 'text', 'items' => []]]],
+                ['id' => 'L2', 'title' => 'Safety &amp; <b>equipment</b>', 'headerImage' => 'https://header.test/a.jpg',
+                    'items' => [
+                    ['id' => 'B1', 'type' => 'text', 'items' => [['paragraph' => '<p>Nothing</p>']]],
+                    ['id' => 'B2', 'type' => 'text', 'items' => [['paragraph' => '<a href="https://broken.test/b2">Go</a>']]],
+                ]],
+            ],
+        ], 'settings' => [
+            // The player's own addresses, not links in the course.
+            'cdnUri' => 'https://cdn.articulate.com',
+            'courseUpdateCallbackUrl' => 'https://rise-runtime.360.prod.art-internal.com/publish/course/x',
+        ]];
+        $js = '__jsonp("runtime-data.js","' . base64_encode(json_encode($data) . str_repeat(' ', 200)) . '");';
+
+        $links = [];
+        foreach ((new link_extractor())->extract_from_js($js) as $link) {
+            $links[$link['url']] = $link;
+        }
+        $this->assertArrayNotHasKey('place', $links['https://intro.test/']);
+        $this->assertArrayNotHasKey('https://cdn.articulate.com', $links);
+        $this->assertArrayNotHasKey('https://rise-runtime.360.prod.art-internal.com/publish/course/x', $links);
+        $this->assertSame(
+            ['tool' => 'rise', 'lesson' => 2, 'lessonid' => 'L2', 'lessontitle' => 'Safety & equipment'],
+            $links['https://header.test/a.jpg']['place']
+        );
+        $this->assertSame(
+            ['tool' => 'rise', 'lesson' => 2, 'lessonid' => 'L2', 'lessontitle' => 'Safety & equipment', 'block' => 2,
+                'blockid' => 'B2'],
+            $links['https://broken.test/b2']['place']
+        );
+        $this->assertSame('Go', $links['https://broken.test/b2']['text']);
+    }
+
     public function test_absolute_urls_trim_punctuation(): void {
         $urls = (new link_extractor())->extract_absolute_urls('Go to https://a.test/x. Or (https://b.test/y), "https://c.test/z"');
         $this->assertSame(['https://a.test/x', 'https://b.test/y', 'https://c.test/z'], $urls);

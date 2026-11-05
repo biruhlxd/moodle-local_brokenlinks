@@ -83,5 +83,15 @@ function xmldb_local_brokenlinks_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026102500, 'local', 'brokenlinks');
     }
 
+    if ($oldversion < 2026110500) {
+        // Where inside a package a reported link is, such as the Rise lesson and block.
+        $table = new xmldb_table('local_brokenlinks_link');
+        $field = new xmldb_field('place', XMLDB_TYPE_TEXT, null, null, null, null, null, 'location');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        upgrade_plugin_savepoint(true, 2026110500, 'local', 'brokenlinks');
+    }
+
     return true;
 }

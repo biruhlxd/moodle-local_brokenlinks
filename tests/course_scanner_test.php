@@ -32,6 +32,7 @@ require_once(__DIR__ . '/fixtures/fake_url_checker.php');
  */
 #[\PHPUnit\Framework\Attributes\CoversClass(\local_brokenlinks\local\course_scanner::class)]
 #[\PHPUnit\Framework\Attributes\CoversClass(\local_brokenlinks\local\scorm_scanner::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\local_brokenlinks\local\report_helper::class)]
 #[\PHPUnit\Framework\Attributes\CoversClass(scan_manager::class)]
 final class course_scanner_test extends \advanced_testcase {
     /**
@@ -309,6 +310,245 @@ final class course_scanner_test extends \advanced_testcase {
             $checker->requests,
             'The whole address is checked, apostrophe included'
         );
+    }
+
+    public function test_rise_lesson_and_block(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $scorm = $this->getDataGenerator()->create_module('scorm', ['course' => $course->id]);
+
+        // Current Rise packages load their lessons from runtime-data.js. The same link is in two blocks.
+        $data = ['course' => ['lessons' => [
+            ['id' => 'intro', 'title' => 'Welcome', 'items' => [['id' => 'b1', 'paragraph' => str_repeat('Text. ', 50)]]],
+            ['id' => 'abc-1', 'title' => 'Safety equipment', 'items' => [
+                ['id' => 'x1', 'paragraph' => '<a href="https://broken.test/rise">Study</a>'],
+                ['id' => 'x2', 'paragraph' => 'None'],
+                ['id' => 'x 3', 'paragraph' => '<a href="https://broken.test/rise">Again</a>'],
+            ]],
+        ]]];
+        $this->add_package_file($scorm, 'scormcontent/index.html', '<script type="application/json" id="__CONFIG__">' .
+            '{"loadOnlyInLms":true}</script><script src="lib/main.js"></script>');
+        $this->add_package_file(
+            $scorm,
+            'scormcontent/runtime-data.js',
+            '__jsonp("runtime-data.js","' . base64_encode(json_encode($data)) . '");'
+        );
+
+        $scan = $this->scan($course->id, new fake_url_checker())[0];
+        $links = array_values($DB->get_records_select('local_brokenlinks_link', 'scanid = ? AND ' .
+            $DB->sql_compare_text('url') . ' = ?', [$scan->id, 'https://broken.test/rise'], 'id'));
+        $this->assertCount(2, $links, 'Each block is reported');
+        $this->assertSame('scormcontent/runtime-data.js', $links[0]->location);
+        $this->assertSame(['tool' => 'rise', 'lesson' => 2, 'lessonid' => 'abc-1', 'lessontitle' => 'Safety equipment',
+            'block' => 1, 'blockid' => 'x1'], json_decode($links[0]->place, true));
+
+        $this->assertSame(3, json_decode($links[1]->place, true)['block']);
+        $this->assertSame('x 3', json_decode($links[1]->place, true)['blockid']);
+        // Without an add-on that describes places, the report shows the file only.
+        $source = \local_brokenlinks\local\report_helper::describe($links[1], $course, get_fast_modinfo($course));
+        $this->assertSame(['', ''], [$source['place'], $source['previewurl']]);
+    }
+
+    public function test_player_scripts_are_skipped(): void {
+        $scanner = \local_brokenlinks\local\course_scanner::class;
+        $this->assertTrue($scanner::is_skipped('https://www.youtube.com/iframe_api'));
+        $this->assertTrue($scanner::is_skipped('//www.youtube.com/player_api?v=2'));
+        $this->assertFalse($scanner::is_skipped('https://www.youtube.com/watch?v=abc'));
+        $this->assertFalse($scanner::is_skipped('https://www.youtube.com/iframe_api_guide'));
+    }
+
+    public function test_same_link_is_one_row(): void {
+        $row = fn($id, $url, $location, $message = 'Page not found.') => (object)['id' => $id, 'severity' => 2,
+            'linktype' => 'external', 'url' => $url, 'message' => $message, 'location' => $location];
+        $groups = \local_brokenlinks\local\report_helper::group_links([
+            $row(1, 'https://broken.test/a', 'wor/wo_1/index.html'),
+            $row(2, 'https://broken.test/b', 'wor/wo_1/index.html'),
+            $row(3, 'https://broken.test/a', 'wor/wo_2/index.html'),
+            $row(4, 'https://broken.test/a', 'wor/wo_3/index.html', 'Server error.'),
+            $row(5, '', '/'),
+            $row(6, '', '/'),
+        ]);
+        $this->assertSame([[1, 3], [2], [4], [5], [6]], array_map(fn($group) => array_column($group, 'id'), $groups));
+    }
+
+    public function test_timeouts_are_tried_again(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course(['summary' =>
+            '<a href="https://slow.test/a">A</a> <a href="https://slow.test/b">B</a> <a href="https://slow.test/c">C</a> ' .
+            '<a href="https://flaky.test/page">Flaky</a>']);
+
+        $checker = new fake_url_checker();
+        [$scan, $problems] = $this->scan($course->id, $checker);
+
+        // The website that was slow for a moment works when it is asked again.
+        $this->assertArrayNotHasKey('https://flaky.test/page', $problems);
+        $this->assertCount(2, array_keys($checker->requests, 'https://flaky.test/page'));
+        // After two time-outs in a row, the website's third link waits; it is tried again only if the
+        // website answers, and this one still does not.
+        $this->assertCount(3, array_filter(array_keys($problems), fn($url) => str_starts_with($url, 'https://slow.test/')));
+        $this->assertCount(2, array_keys($checker->requests, 'https://slow.test/a'));
+        $this->assertCount(1, array_keys($checker->requests, 'https://slow.test/b'));
+        $this->assertNotContains('https://slow.test/c', $checker->requests);
+        $this->assertEquals(3, $DB->get_field('local_brokenlinks_scan', 'warningcount', ['id' => $scan->id]));
+        $this->assertEquals(0, $DB->get_field('local_brokenlinks_scan', 'brokencount', ['id' => $scan->id]));
+    }
+
+    public function test_storyline_slide(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $scorm = $this->getDataGenerator()->create_module('scorm', ['course' => $course->id]);
+
+        // Storyline writes JSON in a JavaScript string, escaping its apostrophes.
+        $data = ['scenes' => [
+            ['kind' => 'scene', 'id' => 'Sc1', 'sceneNumber' => 2, 'slides' => [
+                ['kind' => 'slide', 'id' => 'Intro1', 'title' => 'Welcome', 'html5url' => 'html5/data/js/Intro1.js'],
+                ['kind' => 'slide', 'id' => 'Pads2', 'title' => "<p dir='ltr'>Sam's notes</p>",
+                    'html5url' => 'html5/data/js/Pads2.js'],
+            ]],
+            ['kind' => 'scene', 'id' => 'PromptScene', 'isMessageScene' => true, 'slides' => [
+                ['kind' => 'slide', 'id' => 'Resume', 'title' => 'Resume'],
+            ]],
+        ]];
+        $js = fn($name, $value) => "window.globalProvideData('$name', '" .
+            str_replace("'", "\\'", json_encode($value, JSON_UNESCAPED_SLASHES)) . "');";
+        $this->add_package_file($scorm, 'story.html', '<html><head></head></html>');
+        $this->add_package_file($scorm, 'html5/data/js/data.js', $js('data', $data));
+        // An address typed without http://, which Storyline opens as a website.
+        $this->add_package_file($scorm, 'html5/data/js/Intro1.js', $js('slide', ['title' => 'Welcome',
+            'slideLayers' => [['objects' => [['kind' => 'open_url', 'url' => 'www.broken.test/typed']]]]]));
+        $this->add_package_file($scorm, 'html5/data/js/Pads2.js', $js('slide', ['title' => "Sam's notes",
+            'slideLayers' => [['objects' => [['url' => 'https://broken.test/storyline']]]]]));
+
+        $scan = $this->scan($course->id, new fake_url_checker())[0];
+        $link = $DB->get_record_select(
+            'local_brokenlinks_link',
+            'scanid = ? AND ' . $DB->sql_compare_text('url') . ' = ?',
+            [$scan->id, 'https://broken.test/storyline'],
+            '*',
+            MUST_EXIST
+        );
+        $this->assertSame('html5/data/js/Pads2.js', $link->location);
+        $typed = $DB->get_records('local_brokenlinks_link', ['scanid' => $scan->id, 'location' => 'html5/data/js/Intro1.js']);
+        $this->assertCount(1, $typed);
+        $this->assertSame('http://www.broken.test/typed', reset($typed)->url);
+        $this->assertSame('external', reset($typed)->linktype);
+        $this->assertSame(['tool' => 'storyline', 'scene' => 2, 'slide' => 2, 'slidetitle' => "Sam's notes",
+            'slideid' => 'Sc1.Pads2', 'menu' => [], 'launch' => 'story.html'], json_decode($link->place, true));
+    }
+
+    public function test_storyline_menu_and_layer(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $scorm = $this->getDataGenerator()->create_module('scorm', ['course' => $course->id]);
+
+        $js = fn($name, $value) => "window.globalProvideData('$name', '" .
+            str_replace("'", "\\'", json_encode($value, JSON_UNESCAPED_SLASHES)) . "');";
+        $this->add_package_file($scorm, 'story.html', '<html><head></head></html>');
+        $this->add_package_file($scorm, 'html5/data/js/data.js', $js('data', ['scenes' => [
+            ['kind' => 'scene', 'id' => 'Sc14', 'sceneNumber' => 14, 'slides' => [
+                ['kind' => 'slide', 'id' => 'Scen3', 'title' => 'Scenario', 'html5url' => 'html5/data/js/Scen3.js'],
+            ]],
+        ]]));
+        // Authors arrange the menu into their own sections.
+        $this->add_package_file($scorm, 'html5/data/js/frame.js', $js('frame', ['navData' => ['outline' => ['links' => [
+            ['kind' => 'slidelink', 'slideid' => '_player.Sc14', 'displaytext' => 'Section 3: Online Portal', 'links' => [
+                ['kind' => 'slidelink', 'slideid' => '_player.Sc14.Scen3', 'displaytext' => 'Scenario'],
+            ]],
+        ]]]]));
+        // The link is on a layer, whose objects are named by default except for its heading.
+        $this->add_package_file($scorm, 'html5/data/js/Scen3.js', $js('slide', ['title' => 'Scenario', 'slideLayers' => [
+            ['kind' => 'slidelayer', 'isBaseLayer' => true, 'objects' => [['altText' => 'https://base.test/']]],
+            ['kind' => 'slidelayer', 'id' => 'Lay6', 'objects' => [
+                ['kind' => 'vectorshape', 'data' => ['vectorData' => ['altText' => 'Rectangle 1']]],
+                ['kind' => 'vectorshape', 'data' => ['vectorData' => ['altText' => 'Review the Links List with Alex.']]],
+                ['kind' => 'vectorshape', 'data' => ['vectorData' => ['altText' => 'https://broken.test/layer']],
+                    'url' => 'https://broken.test/layer'],
+            ]],
+        ]]));
+
+        $scan = $this->scan($course->id, new fake_url_checker())[0];
+        $link = $DB->get_record_select(
+            'local_brokenlinks_link',
+            'scanid = ? AND ' . $DB->sql_compare_text('url') . ' = ?',
+            [$scan->id, 'https://broken.test/layer'],
+            '*',
+            MUST_EXIST
+        );
+        $place = json_decode($link->place, true);
+        $this->assertSame(['Section 3: Online Portal', 'Scenario'], $place['menu']);
+        $layer = [$place['layer'], $place['layerid'], $place['layertext'], $place['slideid']];
+        $this->assertSame([1, 'Lay6', 'Review the Links List with Alex.', 'Sc14.Scen3'], $layer);
+    }
+
+    public function test_captivate_slides(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $scorm = $this->getDataGenerator()->create_module('scorm', ['course' => $course->id]);
+
+        // Four slides. Slide 2 has a web object and an Open URL button, and slide 3, which has no title,
+        // its own copy of a Help panel. Every slide has a Resources panel that uses the same web object.
+        $slides = [];
+        $items = [];
+        foreach ([1 => 'Welcome', 2 => 'Forms', 3 => '', 4 => 'Summary'] as $n => $title) {
+            $slides[] = "Slide$n";
+            $si = ["{n:'Res$n'}"];
+            $items[] = "Res$n:{mdi:'Res{$n}c',type:652},Res{$n}c:{wou:'wor/res/index.html'}";
+            if ($n === 3) {
+                $si[] = "{n:'Help3'}";
+                $items[] = "Help3:{mdi:'Help3c',type:652},Help3c:{wou:'wor/help_3/index.html'}";
+            }
+            if ($n === 4) {
+                // The web object of slide 2 again.
+                $si[] = "{n:'Web4'}";
+                $items[] = "Web4:{mdi:'Web4c',type:652},Web4c:{wou:'wor/wo_2/index.html'}";
+            }
+            if ($n === 2) {
+                $si[] = "{n:'Web2'}";
+                $si[] = "{n:'Button2'}";
+                $items[] = "Web2:{mdi:'Web2c',type:652},Web2c:{wou:'wor/wo_2/index.html'}";
+                $items[] = "Button2:{mdi:'Button2c',type:177,oca:'cp.openURL(\"https://broken.test/button\",\"_blank\")'}," .
+                    "Button2c:{}";
+            }
+            $items[] = "Slide$n:{lb:'$title',si:[" . implode(',', $si) . "]}";
+        }
+        $this->add_package_file($scorm, 'index_scorm.html', '<html><head></head></html>');
+        $this->add_package_file($scorm, 'project.txt', json_encode(['metadata' => ['launchFile' => 'index_scorm.html']]));
+        $this->add_package_file($scorm, 'assets/js/CPM.js', "cp.D = cp.model.data = {project_main:{slides:'" .
+            implode(',', $slides) . "'}," . implode(',', $items) . '};');
+        $this->add_package_file($scorm, 'wor/wo_2/index.html', '<a href="https://broken.test/webobject">Form</a>');
+        $this->add_package_file($scorm, 'wor/res/index.html', '<a href="https://broken.test/resources">Resources</a>');
+        $this->add_package_file($scorm, 'wor/help_3/index.html', '<a href="https://broken.test/help">Help</a>');
+
+        $scan = $this->scan($course->id, new fake_url_checker())[0];
+        $describe = function (string $url) use ($DB, $scan, $course): array {
+            $links = $DB->get_records_select(
+                'local_brokenlinks_link',
+                'scanid = ? AND ' . $DB->sql_compare_text('url') . ' = ?',
+                [$scan->id, $url],
+                'location'
+            );
+            $this->assertNotEmpty($links, $url);
+            return array_map(fn($link) => json_decode($link->place, true), array_values($links));
+        };
+
+        $webobject = $describe('https://broken.test/webobject')[0];
+        $slide = [$webobject['slide'], $webobject['slidetitle'], $webobject['others'], $webobject['launch']];
+        $this->assertSame([2, 'Forms', 1, 'index_scorm.html'], $slide);
+        $button = $describe('https://broken.test/button')[0];
+        $this->assertSame([2, 'Forms'], [$button['slide'], $button['slidetitle']]);
+        $this->assertSame(3, $describe('https://broken.test/help')[0]['slide']);
+        $resources = $describe('https://broken.test/resources');
+        $this->assertCount(1, $resources);
+        $this->assertTrue($resources[0]['everyslide']);
     }
 
     public function test_url_variables_dois_and_wrapped_links(): void {

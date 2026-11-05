@@ -60,6 +60,18 @@ class fake_url_checker extends \local_brokenlinks\local\url_checker {
         if (str_contains($url, 'slow')) {
             return $this->classify(0, CURLE_OPERATION_TIMEOUTED, 'timed out');
         }
+        // Websites that are slow for a moment answer when they are asked again.
+        if (str_contains($url, 'flaky') && count(array_keys($this->requests, $url)) === 1) {
+            return $this->classify(0, CURLE_OPERATION_TIMEOUTED, 'timed out');
+        }
         return $this->classify(200, 0, '');
+    }
+
+    /**
+     * Links that timed out are tried again straight away.
+     *
+     * @param int $seconds
+     */
+    public function pause(int $seconds): void {
     }
 }

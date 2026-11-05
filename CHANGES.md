@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 (2026-11-05)
+
+- **One row per link**: a link with the same problem in several places is one row of the report, with **Also in N other places** listing the rest. Authoring tools often repeat the same panel on every slide, which made one slow website fill the report. The download still has one row per place.
+- **Slow websites are tried again**: after two time-outs in a row, a website's other links are not waited for; at the end of the check, after a pause, its links are tried once more. Time-outs are no longer kept in the results cache, so the next check asks again.
+- Rise packages: the addresses of Articulate's own services in the player settings (its file server, the course update address, review and telemetry) are no longer checked or reported. They are not links in the course.
+- The YouTube player script that Captivate's launch page loads to play videos is no longer checked or reported.
+- Addresses typed without `http://` in Storyline and other slide data, such as `www.example.org`, are checked as websites; they were reported as files missing from the package.
+- The check records where inside a package each link is (the Rise lesson and block, the Storyline scene, slide and layer, the Captivate slide). The Ultimate SCORM Fixer add-on shows it in the report, with a button that opens the package at that place. New field `place` in `local_brokenlinks_link`.
+- New hooks for other plugins: `link_place`, to describe where inside a package a link is, and `scan_finished`.
+
 ## 1.0.3 (2026-10-26)
 
 Fixes from testing on sites with Rise courses:
