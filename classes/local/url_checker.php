@@ -75,6 +75,18 @@ class url_checker {
     /** @var float Seconds the last request took, for the time-out message. */
     protected $elapsed = 0.0;
 
+    /** @var int Time-outs in a row after which a website's other links are not requested until it is tried again. */
+    const HOST_TIMEOUTS = 2;
+
+    /** @var int[] Host => time-outs in a row, for this run. */
+    protected $hosttimeouts = [];
+
+    /** @var bool[] URLs whose last check timed out or was put off because their website was not answering. */
+    protected $timedout = [];
+
+    /** @var bool Whether a request in the current check timed out. */
+    protected $requesttimedout = false;
+
     /** @var \cache_application|null */
     protected $cache;
 
@@ -96,18 +108,35 @@ class url_checker {
     /**
      * Check a URL.
      *
+     * A website that has not answered several requests in a row is not asked again in this run until
+     * recheck() is called; its links are reported as timed out, and timed_out() says so.
+     *
      * @param string $url An absolute http or https URL.
      * @return array ['severity' => int, 'httpstatus' => int, 'message' => string]
      */
     public function check(string $url): array {
         $key = sha1($url);
+        $host = strtolower((string)parse_url($url, PHP_URL_HOST));
+        unset($this->timedout[$url]);
+        if (($this->hosttimeouts[$host] ?? 0) >= self::HOST_TIMEOUTS) {
+            $this->timedout[$url] = true;
+            return $this->result(self::WARNING, 0, get_string('error_timeout', 'local_brokenlinks', $this->timeout));
+        }
         if ($this->cachettl > 0) {
             $cached = $this->cache->get($key);
             if ($cached && $cached['time'] > time() - $this->cachettl) {
                 return $cached['result'];
             }
         }
+        $this->requesttimedout = false;
         $result = $this->request($url);
+        if ($this->requesttimedout && $result['httpstatus'] === 0) {
+            // Time-outs are often passing, so they are tried again at the end of the run and not kept.
+            $this->hosttimeouts[$host] = ($this->hosttimeouts[$host] ?? 0) + 1;
+            $this->timedout[$url] = true;
+            return $result;
+        }
+        $this->hosttimeouts[$host] = 0;
         // Some websites refuse servers in hosting centres by answering "not found" for every page, home page included,
         // while visitors get the page. A missing page on a website whose home page also fails is not a broken link.
         if ($result['severity'] === self::BROKEN && in_array($result['httpstatus'], [404, 410]) && $this->site_refuses($url)) {
@@ -117,6 +146,36 @@ class url_checker {
             $this->cache->set($key, ['time' => time(), 'result' => $result]);
         }
         return $result;
+    }
+
+    /**
+     * Whether the last check of a URL timed out, or was put off because its website was not answering.
+     *
+     * @param string $url
+     * @return bool
+     */
+    public function timed_out(string $url): bool {
+        return isset($this->timedout[$url]);
+    }
+
+    /**
+     * Check a URL again after it timed out, asking its website even if it has not been answering.
+     *
+     * @param string $url
+     * @return array As check().
+     */
+    public function recheck(string $url): array {
+        unset($this->hosttimeouts[strtolower((string)parse_url($url, PHP_URL_HOST))]);
+        return $this->check($url);
+    }
+
+    /**
+     * Wait before links that timed out are tried again.
+     *
+     * @param int $seconds
+     */
+    public function pause(int $seconds): void {
+        sleep($seconds);
     }
 
     /**
@@ -247,6 +306,7 @@ class url_checker {
     public function classify(int $status, int $errno, string $error): array {
         if ($status === 0) {
             if ($errno === CURLE_OPERATION_TIMEOUTED) {
+                $this->requesttimedout = true;
                 // Report how long was actually waited; the system can give up before the configured timeout.
                 $waited = $this->elapsed > 0 ? (int)round($this->elapsed) : $this->timeout;
                 return $this->result(self::WARNING, 0, get_string('error_timeout', 'local_brokenlinks', $waited));

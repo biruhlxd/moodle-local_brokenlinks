@@ -85,6 +85,9 @@ REGEX;
     /** @var array Captivate images bundled into JSON files: image path => path of the JSON file that holds it. */
     protected $bundledimages = [];
 
+    /** @var package_places|null The Storyline and Captivate slides of the package. */
+    protected $places = null;
+
     /**
      * Constructor.
      *
@@ -132,14 +135,17 @@ REGEX;
         $this->paths = [];
         $this->lowerpaths = [];
         $this->basenames = [];
+        $bypath = [];
         foreach ($files as $file) {
             $path = ltrim($file->get_filepath() . $file->get_filename(), '/');
             $this->paths[$path] = true;
             $this->lowerpaths[\core_text::strtolower($path)] = $path;
             $this->basenames[$file->get_filename()] = true;
+            $bypath[$path] = $file;
         }
         $this->launchdir = $this->find_launch_dir($files);
         $this->bundledimages = $this->find_captivate_bundles($files);
+        $this->places = package_places::from_files($bypath);
 
         $hasflash = false;
         $bypath = [];
@@ -226,11 +232,25 @@ REGEX;
         }
 
         foreach ($links as $link) {
-            $this->check_package_link($source, $path, $link['url'], $link['text'], false);
+            $this->check_package_link($this->with_place($source, $link['url']), $path, $link['url'], $link['text'], false);
         }
         foreach ($fromscript as $link) {
-            $this->check_package_link($source, $path, $link['url'], $link['text'], true);
+            // Links in Rise course data say which lesson and block they are in.
+            $linksource = isset($link['place']) ? $source + ['place' => $link['place']] : $this->with_place($source, $link['url']);
+            $this->check_package_link($linksource, $path, $link['url'], $link['text'], true);
         }
+    }
+
+    /**
+     * Add the Storyline or Captivate slide a link is on to its source.
+     *
+     * @param array $source With the location of the file the link is in.
+     * @param string $url The link, or media path, as found in the file.
+     * @return array
+     */
+    protected function with_place(array $source, string $url): array {
+        $place = $this->places ? $this->places->find($source['location'], $url) : null;
+        return $place ? $source + ['place' => $place] : $source;
     }
 
     /**
@@ -245,8 +265,10 @@ REGEX;
      */
     protected function check_captivate_media(string $js, array $source): void {
         preg_match_all(self::CAPTIVATE_MEDIA, $js, $matches);
+        $cpmsource = $source;
         foreach (array_unique($matches[1]) as $path) {
             $this->scanner->count_checked();
+            $source = $this->with_place($cpmsource, $path);
             $candidates = array_unique(array_filter([
                 self::normalise_path($this->launchdir === '' ? $path : $this->launchdir . '/' . $path),
                 self::normalise_path($path),
@@ -365,6 +387,9 @@ REGEX;
         }
         if (str_starts_with($url, '//')) {
             $url = 'https:' . $url;
+        } else if ($fromscript && preg_match('~^www\.[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}([/?#]|$)~i', $url)) {
+            // Authoring tools open an address typed without http://, such as www.example.org, as a website.
+            $url = 'http://' . $url;
         }
         if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $url)) {
             if (preg_match('~^https?://~i', $url)) {

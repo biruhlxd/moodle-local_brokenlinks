@@ -137,18 +137,28 @@ if ($scan) {
     } else if ($filter === 'warning') {
         $conditions['severity'] = url_checker::WARNING;
     }
-    $total = $DB->count_records('local_brokenlinks_link', $conditions);
-    $links = $DB->get_records(
-        'local_brokenlinks_link',
-        $conditions,
-        'severity DESC, cmid, sectionid, sourcetype, location, id',
-        '*',
-        $page * $perpage,
-        $perpage
+    // The same link with the same problem is one row, with the other places it is in listed under it:
+    // Captivate courses, for example, often have a copy of the same panel on every slide.
+    $groups = report_helper::group_links(
+        $DB->get_records('local_brokenlinks_link', $conditions, 'severity DESC, cmid, sectionid, sourcetype, location, id')
     );
+    $total = count($groups);
+    $groups = array_slice($groups, $page * $perpage, $perpage);
 
     $modinfo = get_fast_modinfo($course);
-    foreach ($links as $link) {
+    foreach ($groups as $group) {
+        $link = array_shift($group);
+        $others = [];
+        foreach ($group as $other) {
+            $othersource = report_helper::describe($other, $course, $modinfo);
+            $others[] = [
+                'where' => $othersource['where'],
+                'whereurl' => $othersource['whereurl'],
+                'location' => $othersource['location'],
+                'place' => $othersource['place'],
+                'previewurl' => $othersource['previewurl'],
+            ];
+        }
         $source = report_helper::describe($link, $course, $modinfo);
         $isweb = (bool)preg_match('~^https?://~i', $link->url);
         $actions = $hooks->dispatch(new \local_brokenlinks\hook\report_row_actions(
@@ -164,6 +174,14 @@ if ($scan) {
             'whereurl' => $source['whereurl'],
             'icon' => $source['cm'] ? $OUTPUT->image_url('monologo', $source['cm']->modname)->out(false) : '',
             'location' => $source['location'],
+            'place' => $source['place'],
+            'previewurl' => $source['previewurl'],
+            'others' => $others,
+            'otherslabel' => $others ? get_string(
+                count($others) === 1 ? 'otherplace' : 'otherplaces',
+                'local_brokenlinks',
+                count($others)
+            ) : '',
             'url' => $link->url,
             'isweb' => $isweb,
             'canrecheck' => $canrun && $link->linktype === 'external',

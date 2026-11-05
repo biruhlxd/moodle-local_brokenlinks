@@ -51,6 +51,9 @@ class course_scanner {
     /** @var array Schemes and prefixes that are not checked. */
     const SKIP_PREFIXES = ['#', 'mailto:', 'tel:', 'sms:', 'javascript:', 'data:', 'about:', 'blob:', 'file:', 'chrome:'];
 
+    /** @var string Scripts that players load to show videos, such as the YouTube player Captivate loads. */
+    const PLAYER_SCRIPTS = '~^(https?:)?//(www\.)?youtube\.com/(iframe_api|player_api)/?(\?|$)~i';
+
     /** @var int */
     protected $courseid;
 
@@ -68,6 +71,12 @@ class course_scanner {
 
     /** @var array Results of external checks in this scan, keyed by URL. */
     protected $checked = [];
+
+    /** @var string[] Links that timed out in this scan: URL => address requested. */
+    protected $timedout = [];
+
+    /** @var int Seconds to wait before links that timed out are tried again. */
+    const RETRY_PAUSE = 5;
 
     /** @var array Problems already recorded, to avoid duplicates. */
     protected $recorded = [];
@@ -140,8 +149,55 @@ class course_scanner {
             }
             $this->scan_activity($cm);
         }
+        $this->retry_timeouts();
 
         return $this->stats;
+    }
+
+    /**
+     * Try the links that timed out once more, after a pause.
+     *
+     * Websites are often slow for a moment. One link per website is tried first; if that website
+     * still does not answer, its other links are left as they are rather than waited for again.
+     */
+    protected function retry_timeouts(): void {
+        global $DB;
+        if (!$this->timedout) {
+            return;
+        }
+        $byhost = [];
+        foreach ($this->timedout as $url => $request) {
+            $byhost[strtolower((string)parse_url($request, PHP_URL_HOST))][$url] = $request;
+        }
+        $this->checker->pause(self::RETRY_PAUSE);
+        foreach ($byhost as $links) {
+            foreach ($links as $url => $request) {
+                $result = $this->checker->recheck($request);
+                if ($this->checker->timed_out($request)) {
+                    // Still not answering: the website's other links would only time out too.
+                    break;
+                }
+                $this->checked[$url] = $result;
+                $rows = $DB->get_records_select(
+                    'local_brokenlinks_link',
+                    'scanid = :scanid AND linktype = :linktype AND ' . $DB->sql_compare_text('url', 1333) . ' = :url',
+                    ['scanid' => $this->scanid, 'linktype' => 'external', 'url' => $url],
+                    '',
+                    'id, severity'
+                );
+                foreach ($rows as $row) {
+                    $this->stats[(int)$row->severity === url_checker::BROKEN ? 'brokencount' : 'warningcount']--;
+                    if ($result['severity'] === url_checker::OK) {
+                        $DB->delete_records('local_brokenlinks_link', ['id' => $row->id]);
+                        continue;
+                    }
+                    $this->stats[$result['severity'] === url_checker::BROKEN ? 'brokencount' : 'warningcount']++;
+                    $DB->update_record('local_brokenlinks_link', (object)['id' => $row->id, 'severity' => $result['severity'],
+                        'httpstatus' => $result['httpstatus'], 'message' => \core_text::substr($result['message'], 0, 1333)]);
+                }
+            }
+        }
+        $this->timedout = [];
     }
 
     /**
@@ -311,6 +367,9 @@ class course_scanner {
                 return true;
             }
         }
+        if (preg_match(self::PLAYER_SCRIPTS, $url)) {
+            return true;
+        }
         // Template placeholders such as {{url}}, ${path} or %%WWWROOT%% are filled in at runtime.
         return (bool)preg_match('~\{\{|\$\{|%%|\{[a-z_]+\}~i', $url);
     }
@@ -362,7 +421,11 @@ class course_scanner {
                 return;
             }
             // Publishers behind DOI links often refuse automated checks; doi.org says whether the DOI exists.
-            $this->checked[$url] = $this->checker->check(self::doi_lookup_url($url) ?? $url);
+            $request = self::doi_lookup_url($url) ?? $url;
+            $this->checked[$url] = $this->checker->check($request);
+            if ($this->checker->timed_out($request)) {
+                $this->timedout[$url] = $request;
+            }
         }
         $this->stats['linkschecked']++;
         $result = $this->checked[$url];
@@ -553,8 +616,9 @@ class course_scanner {
         string $message
     ): void {
         global $DB;
+        $place = isset($source['place']) ? json_encode($source['place'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
         $key = implode('|', [$source['sourcetype'], $source['cmid'] ?? '', $source['sectionid'] ?? '',
-            $source['location'], $url]);
+            $source['location'], $place, $url]);
         if (isset($this->recorded[$key]) || isset($this->ignoredurls[$url])) {
             return;
         }
@@ -568,6 +632,7 @@ class course_scanner {
             'sectionid' => $source['sectionid'] ?? null,
             'sourcetype' => $source['sourcetype'],
             'location' => \core_text::substr($source['location'], 0, 1333),
+            'place' => $place,
             'url' => $url,
             'linktext' => \core_text::substr(trim($text), 0, 255),
             'linktype' => $linktype,

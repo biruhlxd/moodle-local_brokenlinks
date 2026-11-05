@@ -31,7 +31,9 @@ class report_helper {
      * @param \stdClass $course
      * @param \course_modinfo $modinfo
      * @return array 'where' => name of the activity, section or course, 'whereurl' => link to it or '',
-     *     'cm' => \cm_info|null, 'location' => the field or package file
+     *     'cm' => \cm_info|null, 'location' => the field or package file, 'place' => where inside the
+     *     package, such as the Rise lesson and block, or '', 'previewurl' => a page opening the package there, or '';
+     *     the place and page come from other plugins, see {@see \local_brokenlinks\hook\link_place}
      */
     public static function describe(\stdClass $link, \stdClass $course, \course_modinfo $modinfo): array {
         $where = get_string('source_course', 'local_brokenlinks');
@@ -61,6 +63,28 @@ class report_helper {
         } else if (get_string_manager()->string_exists('location_' . $location, 'local_brokenlinks')) {
             $location = get_string('location_' . $location, 'local_brokenlinks');
         }
-        return ['where' => $where, 'whereurl' => $whereurl, 'cm' => $cm, 'location' => $location];
+        $place = new \local_brokenlinks\hook\link_place($link, $cm);
+        if (!empty($link->place)) {
+            \core\di::get(\core\hook\manager::class)->dispatch($place);
+        }
+        return ['where' => $where, 'whereurl' => $whereurl, 'cm' => $cm, 'location' => $location,
+            'place' => $place->get_description(), 'previewurl' => $place->get_previewurl()];
+    }
+
+    /**
+     * Group the report's rows for the same link with the same problem.
+     *
+     * @param \stdClass[] $links local_brokenlinks_link records, in report order.
+     * @return array[] Each group: the records, in report order. Groups are in the order of their first record.
+     */
+    public static function group_links(array $links): array {
+        $groups = [];
+        foreach ($links as $link) {
+            // Problems without a link, such as an empty package, are each their own row.
+            $key = (string)$link->url === '' ? 'id' . $link->id
+                : implode('|', [$link->severity, $link->linktype, $link->url, $link->message]);
+            $groups[$key][] = $link;
+        }
+        return array_values($groups);
     }
 }

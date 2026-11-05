@@ -19,7 +19,8 @@ namespace local_brokenlinks\local;
 /**
  * Finds links in HTML, CSS, JavaScript and the data files written by e-learning authoring tools.
  *
- * Every extract method returns a list of ['url' => string, 'text' => string] arrays. Nothing is
+ * Every extract method returns a list of ['url' => string, 'text' => string] arrays. Links from
+ * Rise course data also have 'place', saying which lesson and block they are in. Nothing is
  * resolved or checked here; that is the job of the scanners.
  *
  * @package    local_brokenlinks
@@ -142,7 +143,8 @@ class link_extractor {
     public function extract_from_js(string $js): array {
         $links = [];
         foreach ($this->decode_embedded_data($js) as $data) {
-            $links = array_merge($links, $this->extract_from_data($data));
+            $iscourse = is_array($data['course'] ?? null) && is_array($data['course']['lessons'] ?? null);
+            $links = array_merge($links, $iscourse ? $this->extract_from_rise($data) : $this->extract_from_data($data));
         }
 
         // JSON inside JavaScript strings escapes slashes, e.g. https:\/\/example.com.
@@ -231,6 +233,47 @@ class link_extractor {
         }
         $data = json_decode($decoded, true);
         return is_array($data) ? $data : null;
+    }
+
+    /**
+     * Extract links from Rise course data, noting the lesson and block each one is in.
+     *
+     * The settings are the player's own, such as Articulate's file server (cdnUri), the address
+     * Rise checks for course updates and its telemetry service; they are not links in the course.
+     *
+     * @param array $data Decoded Rise data, with the lessons in course.lessons.
+     * @return array
+     */
+    protected function extract_from_rise(array $data): array {
+        $lessons = $data['course']['lessons'];
+        unset($data['course']['lessons'], $data['settings']);
+        $links = $this->extract_from_data($data);
+        foreach (array_values($lessons) as $lessonindex => $lesson) {
+            if (!is_array($lesson)) {
+                continue;
+            }
+            $place = [
+                'tool' => 'rise',
+                'lesson' => $lessonindex + 1,
+                'lessonid' => (string)($lesson['id'] ?? ''),
+                'lessontitle' => trim(html_entity_decode(strip_tags((string)($lesson['title'] ?? '')), ENT_QUOTES, 'UTF-8')),
+            ];
+            $blocks = is_array($lesson['items'] ?? null) ? array_values($lesson['items']) : [];
+            unset($lesson['items']);
+            foreach ($this->extract_from_data($lesson) as $link) {
+                $links[] = $link + ['place' => $place];
+            }
+            foreach ($blocks as $blockindex => $block) {
+                if (!is_array($block)) {
+                    continue;
+                }
+                $blockplace = $place + ['block' => $blockindex + 1, 'blockid' => (string)($block['id'] ?? '')];
+                foreach ($this->extract_from_data($block) as $link) {
+                    $links[] = $link + ['place' => $blockplace];
+                }
+            }
+        }
+        return $links;
     }
 
     /**

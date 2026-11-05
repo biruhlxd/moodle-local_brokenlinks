@@ -44,7 +44,12 @@
             "where": "Session 1",
             "whereurl": "#",
             "icon": "",
-            "location": "File in package: story_content/user.js",
+            "location": "File in package: scormcontent/index.html",
+            "place": "Lesson 3: Safety equipment, block 5",
+            "previewurl": "#",
+            "otherslabel": "Also in 1 other place",
+            "others": [{"where": "Session 2", "whereurl": "#", "location": "File in package: wor/wo_2/index.html",
+                "place": "Slide 4: Summary", "previewurl": "#"}],
             "url": "https://example.com/missing",
             "isweb": true,
             "displayurl": "https://example.com/missing",
@@ -160,6 +165,25 @@
                                 {{^whereurl}}{{where}}{{/whereurl}}
                             </div>
                             <div class="small text-muted text-break">{{location}}</div>
+                            {{#place}}<div class="small text-break">{{place}}</div>{{/place}}
+                            {{#previewurl}}
+                            <a class="btn btn-sm btn-outline-secondary mt-1" href="{{previewurl}}" target="_blank" rel="noopener" title="{{#str}} previewplace_help, local_brokenlinks {{/str}}">{{#str}} previewplace, local_brokenlinks {{/str}}<span class="visually-hidden"> ({{#str}} opensinnewwindow {{/str}})</span></a>
+                            {{/previewurl}}
+                            {{#otherslabel}}
+                            <details class="small mt-2">
+                                <summary>{{otherslabel}}</summary>
+                                <ul class="list-unstyled mt-1 mb-0">
+                                    {{#others}}
+                                    <li class="border-top pt-1 mt-1">
+                                        <div>{{#whereurl}}<a href="{{whereurl}}">{{where}}</a>{{/whereurl}}{{^whereurl}}{{where}}{{/whereurl}}</div>
+                                        <div class="text-muted text-break">{{location}}</div>
+                                        {{#place}}<div class="text-break">{{place}}</div>{{/place}}
+                                        {{#previewurl}}<a href="{{previewurl}}" target="_blank" rel="noopener">{{#str}} previewplace, local_brokenlinks {{/str}}<span class="visually-hidden"> ({{#str}} opensinnewwindow {{/str}})</span></a>{{/previewurl}}
+                                    </li>
+                                    {{/others}}
+                                </ul>
+                            </details>
+                            {{/otherslabel}}
                         </td>
                         <td class="text-break">
                             {{#url}}
