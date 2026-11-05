@@ -7,7 +7,7 @@
 - Rise packages: the addresses of Articulate's own services in the player settings (its file server, the course update address, review and telemetry) are no longer checked or reported. They are not links in the course.
 - The YouTube player script that Captivate's launch page loads to play videos is no longer checked or reported.
 - Addresses typed without `http://` in Storyline and other slide data, such as `www.example.org`, are checked as websites; they were reported as files missing from the package.
-- The check records where inside a package each link is (the Rise lesson and block, the Storyline scene, slide and layer, the Captivate slide). The Ultimate SCORM Fixer add-on shows it in the report, with a button that opens the package at that place. New field `place` in `local_brokenlinks_link`.
+- The check records where inside a package each link is (the Rise lesson and block, the Storyline scene, slide and layer, the Captivate slide). Other plugins can show it in the report, with a button that opens the package at that place, through the new `link_place` hook. New field `place` in `local_brokenlinks_link`.
 - New hooks for other plugins: `link_place`, to describe where inside a package a link is, and `scan_finished`.
 
 ## 1.0.3 (2026-10-26)
