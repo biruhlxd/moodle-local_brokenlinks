@@ -84,7 +84,8 @@ final class url_checker_test extends \advanced_testcase {
 
     public function test_normal_pages_are_not_flagged(): void {
         $phrases = url_checker::DEFAULT_NOT_FOUND_PHRASES;
-        $this->assertNull(url_checker::find_not_found_text('<title>Document Info - Library</title><h1>Course Recipes</h1>', $phrases));
+        $page = '<title>Document Info - Library</title><h1>Course Recipes</h1>';
+        $this->assertNull(url_checker::find_not_found_text($page, $phrases));
         // Words in scripts, styles and comments are not what a visitor sees.
         $hidden = '<script>showError("page not found")</script><style>/* page not found */</style>' .
             '<!-- 404 not found --><p>Welcome</p>';

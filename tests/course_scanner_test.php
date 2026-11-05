@@ -439,7 +439,6 @@ final class course_scanner_test extends \advanced_testcase {
         $this->assertSame('external', reset($typed)->linktype);
         $this->assertSame(['tool' => 'storyline', 'scene' => 2, 'slide' => 2, 'slidetitle' => "Sam's notes",
             'slideid' => 'Sc1.Pads2', 'menu' => [], 'launch' => 'story.html'], json_decode($link->place, true));
-
     }
 
     public function test_storyline_menu_and_layer(): void {
@@ -484,8 +483,8 @@ final class course_scanner_test extends \advanced_testcase {
         );
         $place = json_decode($link->place, true);
         $this->assertSame(['Section 3: Online Portal', 'Scenario'], $place['menu']);
-        $this->assertSame([1, 'Lay6', 'Review the Links List with Alex.', 'Sc14.Scen3'],
-            [$place['layer'], $place['layerid'], $place['layertext'], $place['slideid']]);
+        $layer = [$place['layer'], $place['layerid'], $place['layertext'], $place['slideid']];
+        $this->assertSame([1, 'Lay6', 'Review the Links List with Alex.', 'Sc14.Scen3'], $layer);
     }
 
     public function test_captivate_slides(): void {
@@ -542,8 +541,8 @@ final class course_scanner_test extends \advanced_testcase {
         };
 
         $webobject = $describe('https://broken.test/webobject')[0];
-        $this->assertSame([2, 'Forms', 1, 'index_scorm.html'],
-            [$webobject['slide'], $webobject['slidetitle'], $webobject['others'], $webobject['launch']]);
+        $slide = [$webobject['slide'], $webobject['slidetitle'], $webobject['others'], $webobject['launch']];
+        $this->assertSame([2, 'Forms', 1, 'index_scorm.html'], $slide);
         $button = $describe('https://broken.test/button')[0];
         $this->assertSame([2, 'Forms'], [$button['slide'], $button['slidetitle']]);
         $this->assertSame(3, $describe('https://broken.test/help')[0]['slide']);
