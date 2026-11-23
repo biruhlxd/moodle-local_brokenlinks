@@ -16,6 +16,7 @@
 
 namespace local_brokenlinks;
 
+use local_brokenlinks\local\report_helper;
 use local_brokenlinks\local\scan_manager;
 use local_brokenlinks\local\url_checker;
 
@@ -162,12 +163,12 @@ final class course_scanner_test extends \advanced_testcase {
         set_config('custommenuitems', "Help|https://broken.test/menu\n-Fine|https://works.test/menu\nNo link");
         set_config('additionalhtmlfooter', '<a href="https://broken.test/footer">Footer</a>');
         set_config('footnote', '<p><a href="https://broken.test/theme">Theme footer</a></p>', 'theme_boost');
-        $dashboard = $this->add_text_block(\context_system::instance(), 'my-index',
-            '<a href="https://broken.test/dashboard">Dashboard</a>');
-        $this->add_text_block(\context_system::instance(), 'epb-page-draft', '<a href="https://broken.test/draft">Draft</a>');
+        $system = \context_system::instance();
+        $dashboard = $this->add_text_block($system, 'my-index', '<a href="https://broken.test/dashboard">Dashboard</a>');
+        $this->add_text_block($system, 'epb-page-draft', '<a href="https://broken.test/draft">Draft</a>');
         $course = $this->getDataGenerator()->create_course();
-        $this->add_text_block(\context_course::instance($course->id), 'course-view-*',
-            '<a href="https://broken.test/courseblock">Course block</a>');
+        $coursecontext = \context_course::instance($course->id);
+        $this->add_text_block($coursecontext, 'course-view-*', '<a href="https://broken.test/courseblock">Course block</a>');
 
         [, $problems] = $this->scan(SITEID, new fake_url_checker());
         $this->assertEqualsCanonicalizing([
