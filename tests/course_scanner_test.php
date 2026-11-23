@@ -131,6 +131,68 @@ final class course_scanner_test extends \advanced_testcase {
         $this->assertCount(6, $problems);
     }
 
+    /**
+     * Add a Text block.
+     *
+     * @param \context $context
+     * @param string $pagetype
+     * @param string $text
+     * @return int The block's id.
+     */
+    private function add_text_block(\context $context, string $pagetype, string $text): int {
+        global $DB;
+        return $DB->insert_record('block_instances', (object)[
+            'blockname' => 'html',
+            'parentcontextid' => $context->id,
+            'showinsubcontexts' => 0,
+            'pagetypepattern' => $pagetype,
+            'defaultregion' => 'side-pre',
+            'defaultweight' => 0,
+            'configdata' => base64_encode(serialize((object)['title' => 'Welcome', 'format' => FORMAT_HTML, 'text' => $text])),
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    public function test_site_content(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $DB->set_field('course', 'summary', '<a href="https://broken.test/sitehome">Site home</a>', ['id' => SITEID]);
+        set_config('custommenuitems', "Help|https://broken.test/menu\n-Fine|https://works.test/menu\nNo link");
+        set_config('additionalhtmlfooter', '<a href="https://broken.test/footer">Footer</a>');
+        set_config('footnote', '<p><a href="https://broken.test/theme">Theme footer</a></p>', 'theme_boost');
+        $dashboard = $this->add_text_block(\context_system::instance(), 'my-index',
+            '<a href="https://broken.test/dashboard">Dashboard</a>');
+        $this->add_text_block(\context_system::instance(), 'epb-page-draft', '<a href="https://broken.test/draft">Draft</a>');
+        $course = $this->getDataGenerator()->create_course();
+        $this->add_text_block(\context_course::instance($course->id), 'course-view-*',
+            '<a href="https://broken.test/courseblock">Course block</a>');
+
+        [, $problems] = $this->scan(SITEID, new fake_url_checker());
+        $this->assertEqualsCanonicalizing([
+            'https://broken.test/sitehome',
+            'https://broken.test/menu',
+            'https://broken.test/footer',
+            'https://broken.test/theme',
+            'https://broken.test/dashboard',
+        ], array_keys($problems));
+        $this->assertEquals('setting', $problems['https://broken.test/menu']->sourcetype);
+        $this->assertEquals('Help', $problems['https://broken.test/menu']->linktext);
+
+        $describe = fn($url) => report_helper::describe($problems[$url], get_site(), get_fast_modinfo(SITEID));
+        $this->assertEquals('Site home', $describe('https://broken.test/sitehome')['where']);
+        $this->assertEquals('Custom menu items', $describe('https://broken.test/menu')['location']);
+        $this->assertEquals('Theme: Boost', $describe('https://broken.test/theme')['where']);
+        $this->assertEquals('Dashboard', $describe('https://broken.test/dashboard')['where']);
+        $this->assertEquals('Block: Welcome', $describe('https://broken.test/dashboard')['location']);
+        $this->assertEquals((string)$dashboard, $problems['https://broken.test/dashboard']->location);
+
+        // The blocks of a course are part of the course's report.
+        [, $problems] = $this->scan($course->id, new fake_url_checker());
+        $this->assertEquals(['https://broken.test/courseblock'], array_keys($problems));
+    }
+
     public function test_scorm_package(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
