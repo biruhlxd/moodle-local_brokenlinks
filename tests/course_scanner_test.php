@@ -156,10 +156,12 @@ final class course_scanner_test extends \advanced_testcase {
     }
 
     public function test_site_content(): void {
-        global $DB;
+        global $COURSE, $DB, $SITE;
         $this->resetAfterTest();
         $this->setAdminUser();
         $DB->set_field('course', 'summary', '<a href="https://broken.test/sitehome">Site home</a>', ['id' => SITEID]);
+        // The site home is kept in memory while a page or task runs.
+        $SITE = $COURSE = $DB->get_record('course', ['id' => SITEID]);
         set_config('custommenuitems', "Help|https://broken.test/menu\n-Fine|https://works.test/menu\nNo link");
         set_config('additionalhtmlfooter', '<a href="https://broken.test/footer">Footer</a>');
         set_config('footnote', '<p><a href="https://broken.test/theme">Theme footer</a></p>', 'theme_boost');

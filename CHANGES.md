@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Links outside courses**: the site home's report (linked from the overview as "Links outside courses") checks the whole site: the site home's summary, sections and activities, the custom menu and user menu, the additional HTML, the login instructions and the maintenance message, the settings of the site's theme and its parent themes (such as the footer), and the blocks outside courses: the Dashboard's, the site home's, and the pages made with Edwiser Page Builder (published pages only). "Check all courses" includes it.
+- **Blocks**: the text of the blocks in a course and its activities is checked as part of the course, for the Text block and for blocks of other plugins.
+
 ## 1.1.0 (2026-11-05)
 
 - **One row per link**: a link with the same problem in several places is one row of the report, with **Also in N other places** listing the rest. Authoring tools often repeat the same panel on every slide, which made one slow website fill the report. The download still has one row per place.
