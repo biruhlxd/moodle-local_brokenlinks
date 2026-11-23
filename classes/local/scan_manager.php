@@ -80,7 +80,8 @@ class scan_manager {
      */
     public static function queue_all(bool $notify = false): int {
         global $DB;
-        $courseids = $DB->get_fieldset_select('course', 'id', 'id <> ?', [SITEID]);
+        // The site home stands for the whole site, see {@see course_scanner::run()}.
+        $courseids = $DB->get_fieldset_select('course', 'id', '1 = 1');
         foreach ($courseids as $courseid) {
             self::queue((int)$courseid, true, $notify);
         }

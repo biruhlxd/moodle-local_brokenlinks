@@ -53,6 +53,10 @@ $scans = $DB->get_records_sql($sql, $params, $page * $perpage, $perpage);
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('overview', 'local_brokenlinks'));
 echo html_writer::tag('p', get_string('overviewintro', 'local_brokenlinks'), ['class' => 'text-muted']);
+echo html_writer::tag('p', html_writer::link(
+    new moodle_url('/local/brokenlinks/index.php', ['id' => SITEID]),
+    get_string('sitereport', 'local_brokenlinks')
+));
 
 $progress = scan_manager::site_progress();
 if ($progress && ($progress['queuing'] || $progress['pending'] > 0)) {

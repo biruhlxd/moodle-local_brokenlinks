@@ -36,8 +36,18 @@ class report_helper {
      *     the place and page come from other plugins, see {@see \local_brokenlinks\hook\link_place}
      */
     public static function describe(\stdClass $link, \stdClass $course, \course_modinfo $modinfo): array {
+        if ($link->sourcetype === 'block') {
+            return self::describe_block((int)$link->location) + ['cm' => null, 'place' => '', 'previewurl' => ''];
+        }
+        if ($link->sourcetype === 'setting') {
+            return self::describe_setting($link->location) + ['cm' => null, 'place' => '', 'previewurl' => ''];
+        }
         $where = get_string('source_course', 'local_brokenlinks');
         $whereurl = (new \moodle_url('/course/edit.php', ['id' => $course->id]))->out(false);
+        if ($course->id == SITEID) {
+            $where = get_string('source_sitehome', 'local_brokenlinks');
+            $whereurl = (new \moodle_url('/admin/settings.php', ['section' => 'frontpagesettings']))->out(false);
+        }
         $cm = null;
         $cms = $modinfo->get_cms();
         if ($link->cmid && isset($cms[$link->cmid])) {
@@ -69,6 +79,76 @@ class report_helper {
         }
         return ['where' => $where, 'whereurl' => $whereurl, 'cm' => $cm, 'location' => $location,
             'place' => $place->get_description(), 'previewurl' => $place->get_previewurl()];
+    }
+
+    /**
+     * Where a link found in a block is: the block, and the page it is on.
+     *
+     * @param int $blockid
+     * @return array 'where', 'whereurl' and 'location', as {@see describe()} returns them.
+     */
+    protected static function describe_block(int $blockid): array {
+        global $DB;
+        $instance = $DB->get_record('block_instances', ['id' => $blockid]);
+        $block = $instance ? block_instance($instance->blockname, $instance) : false;
+        if (!$block) {
+            // The block was deleted after the scan.
+            return ['where' => get_string('source_block', 'local_brokenlinks'), 'whereurl' => '',
+                'location' => get_string('location_block', 'local_brokenlinks', '')];
+        }
+        $title = $block->get_title() ?: get_string('pluginname', 'block_' . $instance->blockname);
+        $location = get_string('location_block', 'local_brokenlinks', $title);
+
+        $context = \context::instance_by_id($instance->parentcontextid);
+        if ($instance->pagetypepattern === 'epb-page-publish' && is_numeric($instance->subpagepattern)) {
+            // A page made with Edwiser Page Builder.
+            $name = $DB->get_field('local_edwiserpagebuilder_pages', 'pagename', ['id' => $instance->subpagepattern]);
+            return [
+                'where' => get_string('source_edwiserpage', 'local_brokenlinks', format_string((string)$name)),
+                'whereurl' => (new \moodle_url('/local/edwiserpagebuilder/page.php', ['id' => $instance->subpagepattern]))
+                    ->out(false),
+                'location' => $location,
+            ];
+        }
+        if ($context->contextlevel == CONTEXT_MODULE) {
+            $cm = get_fast_modinfo($context->get_course_context()->instanceid)->get_cm($context->instanceid);
+            return ['where' => $cm->get_formatted_name(['escape' => false]),
+                'whereurl' => $cm->url ? $cm->url->out(false) : '', 'location' => $location];
+        }
+        if ($context->contextlevel == CONTEXT_COURSE && $context->instanceid != SITEID) {
+            return ['where' => get_string('source_coursepage', 'local_brokenlinks'),
+                'whereurl' => (new \moodle_url('/course/view.php', ['id' => $context->instanceid]))->out(false),
+                'location' => $location];
+        }
+        if (str_starts_with($instance->pagetypepattern, 'my-')) {
+            return ['where' => get_string('source_dashboard', 'local_brokenlinks'),
+                'whereurl' => (new \moodle_url('/my/indexsys.php'))->out(false), 'location' => $location];
+        }
+        return ['where' => get_string('source_sitehome', 'local_brokenlinks'),
+            'whereurl' => (new \moodle_url('/', ['redirect' => 0]))->out(false), 'location' => $location];
+    }
+
+    /**
+     * Where a link found in a site setting is.
+     *
+     * @param string $location The setting, as "component/name".
+     * @return array 'where', 'whereurl' and 'location', as {@see describe()} returns them.
+     */
+    protected static function describe_setting(string $location): array {
+        [$component, $name] = explode('/', $location, 2);
+        $strings = get_string_manager();
+        if ($component === 'core') {
+            $label = get_string('setting_' . $name, 'local_brokenlinks');
+            $where = get_string('source_settings', 'local_brokenlinks');
+        } else {
+            $label = $strings->string_exists($name, $component) ? get_string($name, $component) : $name;
+            $where = get_string('source_theme', 'local_brokenlinks', get_string('pluginname', $component));
+        }
+        return [
+            'where' => $where,
+            'whereurl' => (new \moodle_url('/admin/search.php', ['query' => $name]))->out(false),
+            'location' => $label,
+        ];
     }
 
     /**

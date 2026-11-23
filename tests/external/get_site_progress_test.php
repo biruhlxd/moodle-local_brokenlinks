@@ -49,7 +49,7 @@ final class get_site_progress_test extends \core_external\tests\externallib_test
         global $DB;
         $this->resetAfterTest();
         $this->setAdminUser();
-        $this->getDataGenerator()->create_course();
+        // With the site home, which is checked for the whole site, that is two courses.
         $this->getDataGenerator()->create_course();
         $this->assertTrue($this->progress()['finished'], 'Nothing was started');
 

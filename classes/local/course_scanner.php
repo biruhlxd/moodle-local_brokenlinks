@@ -78,6 +78,13 @@ class course_scanner {
     /** @var int Seconds to wait before links that timed out are tried again. */
     const RETRY_PAUSE = 5;
 
+    /** Site settings with one menu item per line, as "Label|URL". */
+    const MENU_SETTINGS = ['custommenuitems', 'customusermenuitems'];
+
+    /** Site settings holding HTML. */
+    const HTML_SETTINGS = ['additionalhtmlhead', 'additionalhtmltopofbody', 'additionalhtmlfooter', 'auth_instructions',
+        'maintenance_message'];
+
     /** @var array Problems already recorded, to avoid duplicates. */
     protected $recorded = [];
 
@@ -149,9 +156,116 @@ class course_scanner {
             }
             $this->scan_activity($cm);
         }
+        $this->scan_blocks($coursecontext);
+        if ($course->id == SITEID) {
+            // The site home stands for the whole site: its menus, footer and other settings, and the blocks
+            // outside courses, such as the Dashboard's and the pages of Edwiser Page Builder.
+            $this->scan_blocks(\context_system::instance());
+            $this->scan_settings();
+        }
         $this->retry_timeouts();
 
         return $this->stats;
+    }
+
+    /**
+     * Scan the blocks added to a context and to the activities inside it.
+     *
+     * The text of a block is kept in its saved settings, so every text in them is read:
+     * this covers the Text block and blocks of other plugins, such as Edwiser's page blocks.
+     *
+     * @param \context $context A course context, or the system context for the blocks outside courses.
+     */
+    protected function scan_blocks(\context $context): void {
+        global $DB;
+        if ($context->contextlevel == CONTEXT_SYSTEM) {
+            $select = 'parentcontextid = :contextid';
+            $params = ['contextid' => $context->id];
+        } else {
+            $select = 'parentcontextid IN (SELECT id FROM {context} WHERE id = :contextid OR '
+                . $DB->sql_like('path', ':path') . ')';
+            $params = ['contextid' => $context->id, 'path' => $context->path . '/%'];
+        }
+        $blocks = $DB->get_records_select('block_instances', $select, $params, 'id', 'id, blockname, pagetypepattern, configdata');
+        foreach ($blocks as $block) {
+            // Edwiser keeps a draft copy of each page; only the published page is seen by users.
+            if ($block->configdata === '' || str_starts_with((string)$block->pagetypepattern, 'epb-page-draft')) {
+                continue;
+            }
+            $config = unserialize_object(base64_decode($block->configdata));
+            $source = ['sourcetype' => 'block', 'location' => (string)$block->id];
+            if ($block->blockname === 'html') {
+                $source += ['contextid' => \context_block::instance($block->id)->id, 'component' => 'block_html',
+                    'filearea' => 'content', 'itemid' => 0];
+            }
+            $this->scan_config_texts($config, $source);
+        }
+    }
+
+    /**
+     * Scan every text in a block's settings.
+     *
+     * @param mixed $value
+     * @param array $source
+     */
+    protected function scan_config_texts($value, array $source): void {
+        if (is_string($value)) {
+            if (str_contains($value, '<')) {
+                $this->scan_html($value, $source);
+            } else {
+                foreach ($this->extractor->extract_absolute_urls($value) as $url) {
+                    $this->check_link($source, $url, '');
+                }
+            }
+            return;
+        }
+        if (is_array($value) || is_object($value)) {
+            foreach ((array)$value as $key => $item) {
+                // Scripts and styles are code, not links people follow.
+                if ($key !== 'js' && $key !== 'css') {
+                    $this->scan_config_texts($item, $source);
+                }
+            }
+        }
+    }
+
+    /**
+     * Scan the site settings that hold links: the menus, the extra HTML and the settings of the site's theme.
+     */
+    protected function scan_settings(): void {
+        global $CFG;
+        foreach (self::MENU_SETTINGS as $name) {
+            $source = ['sourcetype' => 'setting', 'location' => 'core/' . $name];
+            foreach (explode("\n", (string)($CFG->$name ?? '')) as $line) {
+                $parts = explode('|', $line);
+                if (count($parts) > 1) {
+                    $this->check_link($source, trim($parts[1]), trim(ltrim($parts[0], '- ')));
+                }
+            }
+        }
+        foreach (self::HTML_SETTINGS as $name) {
+            $this->scan_html((string)($CFG->$name ?? ''), ['sourcetype' => 'setting', 'location' => 'core/' . $name]);
+        }
+
+        $theme = \theme_config::load($CFG->theme);
+        foreach (array_unique(array_merge([$theme->name], $theme->parents)) as $themename) {
+            $component = 'theme_' . $themename;
+            foreach ((array)get_config($component) as $name => $value) {
+                // Styles are code, not links people follow; files are checked as uploaded files.
+                if (!is_string($value) || str_contains($name, 'scss') || $name === 'version') {
+                    continue;
+                }
+                $source = ['sourcetype' => 'setting', 'location' => $component . '/' . $name];
+                if (str_contains($value, '<')) {
+                    $this->scan_html($value, $source + ['contextid' => \context_system::instance()->id,
+                        'component' => $component, 'filearea' => $name, 'itemid' => 0]);
+                } else {
+                    foreach ($this->extractor->extract_absolute_urls($value) as $url) {
+                        $this->check_link($source, $url, '');
+                    }
+                }
+            }
+        }
     }
 
     /**
